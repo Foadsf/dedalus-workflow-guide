@@ -1,0 +1,242 @@
+# Dedalus Project .gitignore
+# Generated for 2D Rayleigh-Benard convection simulation
+
+# =============================================================================
+# Dedalus Simulation Output Files
+# =============================================================================
+
+# HDF5 simulation data files
+snapshots/
+!snapshots/.gitkeep
+
+# Merged HDF5 files (main simulation output)
+*.h5
+
+# Generated XDMF visualization files
+*.xmf
+
+# Parallel process HDF5 files (before merging)
+*_p*.h5
+
+# =============================================================================
+# Visualization Output Files
+# =============================================================================
+
+# VTK output directory and files
+vtk_output/
+!vtk_output/.gitkeep
+
+# VTK files
+*.vtu
+*.vts
+*.vtk
+*.vtp
+*.vtr
+
+# Matplotlib/Python generated plots
+frames/
+!frames/.gitkeep
+
+# Generated image files
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.svg
+*.eps
+*.pdf
+
+# ParaView state files (optional - comment out if you want to track these)
+*.pvsm
+*.pvd
+
+# =============================================================================
+# Python Generated Files
+# =============================================================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# =============================================================================
+# System and Editor Files
+# =============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.tmp
+*.temp
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+.*.swp
+.*.swo
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# =============================================================================
+# Dedalus Specific Files
+# =============================================================================
+
+# Log files
+*.log
+
+# Checkpoint/restart files
+checkpoint/
+restart/
+
+# Temporary computation files
+*.tmp
+
+# Profiling output
+*.prof
+
+# =============================================================================
+# Optional: Keep Examples of Generated Files
+# =============================================================================
+
+# If you want to keep a single example of each file type for documentation:
+# !example_snapshot.h5
+# !example_visualization.xmf
+# !example_plot.png
+
+# =============================================================================
+# Documentation and Development
+# =============================================================================
+
+# Keep important documentation and scripts
+!*.md
+!*.py
+!*.txt
+!README*
+!LICENSE*
+!requirements.txt
+!environment.yml
+
+# Keep configuration files
+!*.yaml
+!*.yml
+!*.toml
+!*.cfg
+!*.ini
