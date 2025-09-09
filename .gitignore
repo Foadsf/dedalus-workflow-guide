@@ -240,3 +240,6 @@ restart/
 !*.toml
 !*.cfg
 !*.ini
+
+# Keep workflow and CI files
+repomix-output.xml

@@ -106,11 +106,11 @@ def create_xdmf_file(h5_filepath):
                     grid, "Attribute", Name=task, AttributeType="Scalar", Center="Node"
                 )
 
-                # Note: Data dimensions need to be transposed for XDMF
+                # Note: Keep original data dimensions for proper reading
                 data_item = ET.SubElement(
                     attribute,
                     "DataItem",
-                    Dimensions=f"{len(z)} {len(x)}",
+                    Dimensions=f"{len(x)} {len(z)}",
                     NumberType="Float",
                     Precision="8",
                     Format="HDF",
@@ -127,9 +127,31 @@ def create_xdmf_file(h5_filepath):
 
 # Main execution
 if __name__ == "__main__":
-    snapshots_dir = pathlib.Path("snapshots")
+    import sys
 
-    for file_path in sorted(snapshots_dir.glob("snapshots_s*.h5")):
+    # Allow specifying snapshots directory as argument
+    if len(sys.argv) > 1:
+        snapshots_dir = pathlib.Path(sys.argv[1])
+    else:
+        snapshots_dir = pathlib.Path("snapshots")
+
+    # Check if directory exists
+    if not snapshots_dir.exists():
+        print(f"Error: Directory '{snapshots_dir}' does not exist.")
+        print("Usage: python3 make_xdmf_manual.py [snapshots_directory]")
+        sys.exit(1)
+
+    # Find HDF5 files
+    h5_files = list(snapshots_dir.glob("snapshots_s*.h5"))
+
+    if not h5_files:
+        print(f"No snapshot files found in '{snapshots_dir}'")
+        print("Looking for files matching pattern: snapshots_s*.h5")
+        sys.exit(1)
+
+    print(f"Found {len(h5_files)} snapshot files in '{snapshots_dir}'")
+
+    for file_path in sorted(h5_files):
         print(f"Processing {file_path.name}")
         try:
             xdmf_file = create_xdmf_file(file_path)

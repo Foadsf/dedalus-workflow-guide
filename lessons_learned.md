@@ -1,234 +1,210 @@
-# Dedalus 3 Visualization Guide: XDMF and VTK Export
+# Lessons Learned: Dedalus 3 Simulation and Visualization
 
 ## Overview
 
-This guide documents the process of creating visualization files from Dedalus 3 simulation data for use in ParaView and other visualization tools. It covers the challenges encountered when migrating from Dedalus 2 to Dedalus 3 and provides working solutions.
+This document captures hard-learned lessons from setting up Dedalus 3 simulations and creating effective visualizations. These insights come from real troubleshooting experiences and should help avoid common pitfalls.
 
-## The Problem
+## Critical API Changes in Dedalus 3
 
-The original `make_xdmf.py` script failed with:
+### 1. Missing XDMF Module
+**Problem**: Scripts using `from dedalus.tools.xdmf import XDMF` fail with `ModuleNotFoundError`.
+
+**Root Cause**: The `dedalus.tools.xdmf` module was removed in Dedalus 3.
+
+**Solution**: Create XDMF files manually using Python's built-in XML libraries.
+
+### 2. Grid Shape Method Removed
+**Problem**: `dist.local_grid_shape(scales=1)` throws `AttributeError`.
+
+**Solution**: Use coordinate array shapes directly:
+```python
+# Wrong (Dedalus 2)
+shape = dist.local_grid_shape(scales=1)
+
+# Correct (Dedalus 3)
+shape = z.shape  # or u['g'][1].shape
 ```
-ModuleNotFoundError: No module named 'dedalus.tools.xdmf'
-```
 
-**Root Cause**: The `dedalus.tools.xdmf` module that existed in Dedalus 2 has been removed or relocated in Dedalus 3.
+### 3. HDF5 Structure Changes
+**Major Change**: Coordinate datasets now have hash-based names instead of predictable paths.
 
-## Key Lessons Learned
-
-### 1. Dedalus 3 HDF5 File Structure Changes
-
-Unlike earlier versions, Dedalus 3 stores coordinate information with hash-based names instead of predictable paths:
-
-**Old expectation (Dedalus 2)**:
+**Old structure**:
 ```
 scales/x/1.0
 scales/z/1.0
 ```
 
-**Actual structure (Dedalus 3)**:
+**New structure**:
 ```
 scales/x_hash_259ff677ed0cf648980d6e69fe3d2deb0dc82141
-scales/z_hash_2b3e6c1ad6197e7bbb577c37c9be3babe1727daf
+scales/z_hash_dbaa493059a5260a1784ae85d009bb09723a1cd0
 ```
 
-**Solution**: Use the `NAME` attribute to identify coordinate datasets:
+**Solution**: Use the `NAME` attribute to find coordinates dynamically:
 ```python
 def find_coordinate_datasets(h5_file):
-    """Find coordinate datasets by their NAME attribute."""
-    x_key = None
-    z_key = None
-
+    x_key = z_key = None
     for key in h5_file["scales"].keys():
         dataset = h5_file["scales"][key]
         if hasattr(dataset, 'attrs') and 'NAME' in dataset.attrs:
             name = dataset.attrs['NAME']
             if isinstance(name, bytes):
                 name = name.decode('utf-8')
-            if name == 'x':
-                x_key = key
-            elif name == 'z':
-                z_key = key
-
+            if name == 'x': x_key = key
+            elif name == 'z': z_key = key
     return x_key, z_key
 ```
 
-### 2. File Structure Investigation is Critical
+## Simulation Physics Lessons
 
-**Mistake**: Assuming the file structure without verification.
+### Kelvin-Helmholtz Instability Requirements
+**Problem**: Initial simulation showed no instability development - velocity remained constant and no vortex formation occurred.
 
-**Lesson**: Always inspect the actual HDF5 structure before writing conversion scripts:
+**Root Causes**:
+1. **Insufficient perturbations**: Random noise of amplitude `1e-4` was too weak
+2. **High viscosity**: `nu = 1e-4` suppressed instability growth
+3. **Wrong perturbation type**: Random noise is less effective than structured perturbations
 
+**Working Solution**:
 ```python
-# Essential debugging script
+# Reduce viscosity to allow instability growth
+nu = 1e-5
+kappa = 1e-5
+
+# Use structured sinusoidal perturbations
+u["g"][1] += 0.1 * np.sin(2 * np.pi * x / Lx) * np.exp(-(z/0.2)**2)
+```
+
+**Key Indicators of Success**:
+- W-component (vertical velocity) must be non-zero
+- Scalar field range should expand beyond initial [-1,1] bounds
+- Vorticity should show strong values (hundreds, not single digits)
+
+## Visualization Challenges
+
+### XDMF vs VTK Trade-offs
+**XDMF Issues**:
+- ParaView crashes frequently with custom XDMF files
+- Dimension ordering is critical and error-prone
+- Array size mismatches cause cryptic warnings in VisIt
+
+**VTK Advantages**:
+- More reliable loading in both ParaView and VisIt
+- Self-contained files (no dependency on HDF5 structure)
+- Better error messages when problems occur
+
+**Recommendation**: Use VTK format for initial visualization, switch to XDMF only for very large datasets where file size matters.
+
+### Vector Field Handling
+**Problem**: Dedalus velocity fields have shape `(time, components, x, z)` but VTK expects separate scalar components.
+
+**Solution**:
+```python
+if task == "velocity":
+    u_component = data[0, :, :].flatten(order="F")
+    w_component = data[1, :, :].flatten(order="F")
+    v_component = np.zeros_like(u_component)  # Dummy for 3D VTK
+    pointData["velocity"] = (u_component, v_component, w_component)
+```
+
+### Data Range Issues
+**Common Problem**: Simulation data appears as uniform color in visualization tools.
+
+**Debugging Steps**:
+1. Check actual data ranges with inspection scripts
+2. Manually set color scale ranges in ParaView/VisIt
+3. Verify you're looking at evolved timesteps, not initial conditions
+4. Check if field values are reasonable for the physics
+
+## Development Workflow Lessons
+
+### Always Inspect First
+**Critical Habit**: Never assume HDF5 file structure. Always run inspection scripts before writing conversion code.
+
+**Essential Debug Script**:
+```python
+# Check data ranges and evolution
 with h5py.File(filepath, "r") as h5_file:
-    print("Root level keys:", list(h5_file.keys()))
-    h5_file.visititems(lambda name, obj: print(f"{name}: {obj}"))
-
-    # Check attributes
-    for key in h5_file["scales"].keys():
-        dataset = h5_file["scales"][key]
-        if dataset.attrs:
-            print(f"{key} attributes:", dict(dataset.attrs))
+    for field in ['scalar', 'velocity', 'vorticity']:
+        data = h5_file[f"tasks/{field}"][:]
+        print(f"{field}: shape={data.shape}, range=[{data.min():.3f}, {data.max():.3f}]")
 ```
 
-### 3. XDMF Dimension Ordering
+### Directory Organization Matters
+**Problem**: Dedalus simulations create output relative to the current working directory, not the script location.
 
-**Critical Detail**: XDMF expects dimensions in a specific order that may differ from how Dedalus stores data.
-
-- Dedalus data shape: `(time, x, z)` → `(50, 256, 64)`
-- XDMF topology expects: `(z_dims, x_dims)` → `"64 256"`
-
-**Correct XDMF topology**:
-```xml
-<Topology TopologyType="2DRectMesh" Dimensions="64 256"/>
+**Solution**: Always run simulations from their intended directory:
+```bash
+cd examples/01_kelvin_helmholtz_2d/
+mpiexec -n 4 python3 kelvin_helmholtz.py
 ```
 
-### 4. Data Array Indexing in XDMF
+### Logging Verbosity
+**Problem**: Default Dedalus logging is extremely verbose and unhelpful for monitoring progress.
 
-For time-dependent data, use proper HDF5 hyperslab notation:
-```xml
-<DataItem Format="HDF" Dimensions="64 256">
-    filename.h5:/tasks/buoyancy[0,:,:]
-</DataItem>
-```
-
-Where `[0,:,:]` selects the first time step and all spatial points.
-
-## Working Solutions
-
-### Solution 1: Manual XDMF Creation (Recommended)
-
-**Advantages**:
-- No data duplication (references original HDF5 files)
-- Efficient for large datasets
-- Native ParaView support
-- Preserves time series information
-
-**File**: `make_xdmf_manual.py`
+**Solution**: Reduce logging levels and create custom progress indicators:
 ```python
-# Key components of the working solution:
-# 1. Dynamic coordinate dataset discovery
-# 2. Proper XML structure for XDMF 3.0
-# 3. Correct dimension ordering
-# 4. Time series support
+logging.getLogger("subsystems").setLevel(logging.WARNING)
+logging.getLogger("solvers").setLevel(logging.WARNING)
 ```
 
-### Solution 2: VTK Export
+## Performance and Debugging
 
-**Advantages**:
-- Wide compatibility with visualization tools
-- Self-contained files
-- Good for smaller datasets
+### Simulation Parameters
+**Key Insight**: Physical instabilities require the right balance of:
+- **Time scales**: Instability growth time vs. simulation time
+- **Spatial resolution**: Adequate grid points to resolve developing structures
+- **Dissipation**: Low enough viscosity/diffusivity for growth, high enough for stability
+- **Perturbations**: Strong enough to overcome numerical diffusion
 
-**Disadvantages**:
-- Data duplication
-- Larger file sizes
-- Requires pyevtk dependency
+### When Simulations Fail Silently
+**Warning Signs**:
+- Max velocity stays constant throughout simulation
+- Scalar field standard deviation only decreases (indicates pure diffusion)
+- Vertical velocity component remains zero in shear flows
 
-**Installation**: `pip install pyevtk`
+**Action**: Don't waste time on visualization - fix the physics first.
 
-## Common Pitfalls and Solutions
+### File Format Strategy
+1. **Start with VTK** for reliable visualization
+2. **Use inspection scripts** to verify data before creating visualizations
+3. **Test with small datasets** before running long simulations
+4. **Only use XDMF** if file sizes become prohibitive
 
-### Pitfall 1: Hardcoded Dataset Paths
-```python
-# Wrong - will fail in Dedalus 3
-x = h5_file["scales/x/1.0"][:]
+## Tools and Dependencies
 
-# Correct - dynamic lookup
-x_key, z_key = find_coordinate_datasets(h5_file)
-x = h5_file[f"scales/{x_key}"][:]
-```
+### Essential Python Packages
+- `h5py`: HDF5 file reading
+- `pyevtk`: VTK file generation (`pip install pyevtk`)
+- `xml.etree.ElementTree`: XDMF generation (built-in)
 
-### Pitfall 2: Incorrect XDMF Geometry Type
-```xml
-<!-- Wrong -->
-<Geometry GeometryType="X_Y_Z">
+### Visualization Software
+- **ParaView**: Better for publication-quality figures, more prone to crashes with custom formats
+- **VisIt**: More robust with problematic files, better for exploratory analysis
 
-<!-- Correct for 2D data -->
-<Geometry GeometryType="VXVY">
-```
+## Common Error Patterns
 
-### Pitfall 3: Missing Error Handling
-```python
-# Always include error handling
-try:
-    x_key, z_key = find_coordinate_datasets(h5_file)
-    if not x_key or not z_key:
-        raise ValueError("Could not find x and z coordinate datasets")
-except Exception as e:
-    print(f"Error processing {file_path.name}: {e}")
-```
+### Data Shape Mismatches
+**Symptom**: "Bad array shape" or "Array size mismatch" errors
+**Cause**: Assuming Dedalus 2 array ordering in Dedalus 3
+**Fix**: Always check actual array shapes before processing
 
-## Debugging Workflow
+### Silent Failures
+**Symptom**: Code runs without errors but produces meaningless visualizations
+**Cause**: Physics parameters prevent instability development
+**Fix**: Verify simulation produces expected physical behavior before visualization
 
-1. **Inspect file structure first**:
-   ```bash
-   python3 inspect_hdf5_structure.py
-   ```
+### Path Dependencies
+**Symptom**: Files created in unexpected locations
+**Cause**: Running scripts from wrong directory
+**Fix**: Use absolute paths or ensure correct working directory
 
-2. **Test with single file**:
-   - Process one file at a time initially
-   - Verify output in ParaView before batch processing
+## Success Indicators
 
-3. **Check XDMF file validity**:
-   - XDMF files are XML - they should be readable as text
-   - Verify paths reference existing datasets
+A working simulation should show:
+- **Field evolution**: Significant changes in data ranges over time
+- **Physical realism**: Velocity fields consistent with expected flow patterns
+- **Instability growth**: Exponential or rapid growth phases followed by nonlinear development
+- **Clean visualization**: Data loads without errors and shows expected structures
 
-4. **ParaView debugging**:
-   - Check ParaView's Information panel for data ranges
-   - Use "Find Data" to verify field values
-   - Enable "Output Messages" for detailed error info
-
-## File Organization
-
-```
-project/
-├── snapshots/           # Dedalus HDF5 output
-│   ├── snapshots_s1.h5
-│   ├── snapshots_s1.xmf  # Generated XDMF files
-│   └── ...
-├── vtk_output/          # Generated VTK files
-│   ├── snapshots_s1_t_000000.vtu
-│   └── ...
-├── make_xdmf_manual.py  # XDMF generation script
-├── convert_to_vtk_fixed.py  # VTK conversion script
-└── inspect_hdf5_structure.py  # Debugging utility
-```
-
-## ParaView Usage
-
-### Opening XDMF Files:
-1. File → Open → Select `.xmf` file
-2. Reader: "Xdmf3ReaderT" (default)
-3. Apply → Data should load with time series
-
-### Time Animation:
-- Use VCR controls at top
-- Set frame rate in Animation View
-- Export animation: File → Save Animation
-
-## Performance Considerations
-
-- **XDMF**: Best for large datasets, minimal overhead
-- **VTK**: Better for small datasets, wider tool compatibility
-- **Memory**: XDMF files reference data in-place, VTK files duplicate data
-
-## Version Dependencies
-
-- **Dedalus 3**: HDF5 structure with hashed coordinate names
-- **ParaView**: Tested with 5.x series
-- **Python libraries**: h5py, numpy, xml.etree.ElementTree (built-in)
-- **Optional**: pyevtk for VTK export
-
-## Conclusion
-
-The transition from Dedalus 2 to Dedalus 3 requires adapting visualization workflows due to internal HDF5 structure changes. The key is understanding the actual file structure and adapting scripts accordingly, rather than assuming compatibility with older versions.
-
-**Quick Start**: Use the `inspect_hdf5_structure.py` script first, then `make_xdmf_manual.py` for most visualization needs.
-
-## Additional Resources
-
-- [XDMF Format Documentation](https://www.xdmf.org/)
-- [ParaView User Guide](https://docs.paraview.org/)
-- [Dedalus Documentation](https://dedalus-project.readthedocs.io/)
-- [HDF5 Python Documentation](https://docs.h5py.org/)
+These lessons represent real debugging time that can be avoided by following these guidelines.
